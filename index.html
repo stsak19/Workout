@@ -3,17 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TSAK — καρνέ προπόνησης</title>
+<title>Τσακ — καρνέ προπόνησης</title>
 <meta name="description" content="Καταγραφή προπόνησης και προόδου για αθλητικό, γραμμωμένο σώμα. Full-body 3 φορές την εβδομάδα με αυτόματη προοδευτική επιβάρυνση.">
 <meta name="theme-color" content="#0a0a0a">
+<meta name="application-name" content="Τσακ">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="TSAK">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='112'%20fill='%230a0a0a'/%3E%3Cpolygon%20points='300,60%20180,280%20250,280%20210,450%20340,220%20265,220'%20fill='%23e8ff47'/%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='112'%20fill='%230a0a0a'/%3E%3Cpolygon%20points='300,60%20180,280%20250,280%20210,450%20340,220%20265,220'%20fill='%23e8ff47'/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-title" content="Τσακ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='114'%20fill='%230a0a0a'/%3E%3Cpolygon%20points='296,48%20168,288%20240,288%20208,464%20344,224%20272,224'%20fill='%23e8ff47'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;600&family=Roboto+Condensed:wght@700&display=swap&subset=greek,latin" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Roboto+Condensed:wght@700&display=swap&subset=greek,latin" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="assets/css/styles.css">
 </head>
@@ -49,12 +52,12 @@
   <header class="masthead">
     <div class="brand">
       <svg class="brand-mark" width="32" height="32" viewBox="0 0 512 512" aria-hidden="true">
-        <rect x="6" y="6" width="500" height="500" rx="112" fill="#0a0a0a" stroke="#1e1e1e" stroke-width="12"/>
-        <polygon points="300,60 180,280 250,280 210,450 340,220 265,220" fill="#e8ff47"/>
+        <rect x="6" y="6" width="500" height="500" rx="114" fill="#0a0a0a" stroke="#1e1e1e" stroke-width="12"/>
+        <polygon points="296,48 168,288 240,288 208,464 344,224 272,224" fill="#e8ff47"/>
       </svg>
       <div>
         <span class="brand-sub">Workout Tracker</span>
-        <h1 class="wordmark">TSAK</h1>
+        <h1 class="wordmark">Τσακ</h1>
       </div>
     </div>
     <div class="masthead-meta">
@@ -216,15 +219,6 @@
       <div id="sync-status"></div>
       <div class="btn-row">
         <button class="btn btn-quiet" id="sync-now">Συγχρονισμός τώρα</button>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h3>Το πρόγραμμά μου</h3>
-      <p class="hint" style="margin-top:0">Κάθε άσκηση που άλλαξες, πρόσθεσες ή αφαίρεσες φαίνεται εδώ. Η αλλαγή γίνεται από την καρτέλα <strong>Προπόνηση</strong>, με το κουμπί «Αλλαγή» πάνω δεξιά σε κάθε άσκηση.</p>
-      <div id="plan-list"></div>
-      <div class="btn-row">
-        <button class="btn btn-quiet" id="plan-reset">Επαναφορά αρχικού προγράμματος</button>
       </div>
     </div>
 
