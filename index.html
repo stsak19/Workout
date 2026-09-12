@@ -59,7 +59,7 @@
     </div>
     <div class="masthead-meta">
       <strong id="week-count">—</strong>
-      <span id="week-label">ξεκίνα σήμερα</span>
+      <span id="week-label">ξεκίνα σήμερα</span><span class="sync-dot" id="sync-dot" aria-hidden="true"></span>
     </div>
   </header>
 
@@ -211,22 +211,12 @@
     </div>
 
     <div class="panel">
-      <h3>Συγχρονισμός με Supabase</h3>
-      <p class="hint" style="margin-top:0">Προαιρετικό. Χωρίς αυτό, όλα μένουν στη συσκευή σου. Με αυτό, τα δεδομένα σου ακολουθούν σε κινητό και υπολογιστή.</p>
-      <div class="field">
-        <label for="sb-url">Project URL</label>
-        <input type="text" id="sb-url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="sb-key">Anon public key</label>
-        <input type="text" id="sb-key" placeholder="eyJhbGci..." autocomplete="off" spellcheck="false">
-      </div>
+      <h3>Συγχρονισμός</h3>
+      <p class="hint" style="margin-top:0">Γίνεται μόνος του. Κάθε σετ που καταγράφεις ανεβαίνει αυτόματα, και τα δεδομένα σου σε ακολουθούν σε κινητό και υπολογιστή. Χωρίς δίκτυο η εφαρμογή δουλεύει κανονικά — ό,τι έμεινε πίσω ανεβαίνει μόλις ξαναβρεθεί σύνδεση.</p>
+      <div id="sync-status"></div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="sb-save">Αποθήκευση</button>
-        <button class="btn btn-quiet" id="sb-test">Δοκιμή σύνδεσης</button>
-        <button class="btn btn-quiet" id="sb-pull">Φέρε από το cloud</button>
+        <button class="btn btn-quiet" id="sync-now">Συγχρονισμός τώρα</button>
       </div>
-      <div id="sb-status"></div>
     </div>
 
     <div class="panel">

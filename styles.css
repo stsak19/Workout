@@ -133,6 +133,21 @@ button {
   line-height: 1.1;
 }
 
+.sync-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: background 0.2s;
+}
+
+.sync-dot[data-state='ok'] { background: var(--green); }
+.sync-dot[data-state='syncing'] { background: var(--accent); }
+.sync-dot[data-state='error'] { background: var(--red); }
+
 /* ---------- Λωρίδα ημερών ---------- */
 
 .daystrip {

@@ -7,10 +7,15 @@ import { lineChart, barRow } from './charts.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-const uid = () =>
-  (crypto.randomUUID
-    ? crypto.randomUUID()
-    : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+/* Το cloud θέλει κανονικά uuid, οπότε η εφεδρεία φτιάχνει κι αυτή uuid v4. */
+const uid = () => {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -677,46 +682,64 @@ function renderGuide() {
 /* ---------- Ρυθμίσεις ---------- */
 
 function renderSettings() {
-  const cfg = store.supabaseConfig();
-  $('#sb-url').value = cfg.url || '';
-  $('#sb-key').value = cfg.anonKey || '';
   $('#storage-mode').textContent =
     store.storageMode() === 'local'
-      ? 'Τα δεδομένα αποθηκεύονται σε αυτή τη συσκευή.'
+      ? 'Τα δεδομένα γράφονται στη συσκευή και ανεβαίνουν μόνα τους στο cloud.'
       : 'Ο browser μπλοκάρει την τοπική αποθήκευση, οπότε τα δεδομένα κρατιούνται μόνο για αυτή τη συνεδρία. Σε κανονική σελίδα θα αποθηκεύονται μόνιμα.';
+  renderSyncStatus();
+}
+
+function syncWording() {
+  const s = store.syncState();
+  const time = s.at
+    ? new Date(s.at).toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  if (s.status === 'syncing') return { text: 'Γίνεται συγχρονισμός…', ok: true };
+  if (s.status === 'error') {
+    return {
+      text: 'Χωρίς σύνδεση αυτή τη στιγμή. Τα δεδομένα είναι ασφαλή στη συσκευή και θα ανέβουν μόλις ξαναβρεθεί δίκτυο.',
+      ok: false
+    };
+  }
+  if (s.status === 'ok') {
+    return {
+      text: 'Όλα συγχρονισμένα' + (time ? ' · τελευταία φορά ' + time : '') + '.',
+      ok: true
+    };
+  }
+  return { text: 'Αναμονή για πρώτο συγχρονισμό…', ok: true };
+}
+
+function renderSyncStatus() {
+  const w = syncWording();
+  const host = $('#sync-status');
+  if (host) setStatus(host, w.text, w.ok);
+  const dot = $('#sync-dot');
+  if (dot) {
+    const s = store.syncState();
+    dot.dataset.state = s.status;
+    dot.setAttribute('title', w.text);
+  }
 }
 
 function setStatus(el, message, ok) {
   el.innerHTML = `<div class="status ${ok ? 'ok' : 'err'}">${message}</div>`;
 }
 
-$('#sb-save').addEventListener('click', () => {
-  store.write('settings', { url: $('#sb-url').value.trim(), anonKey: $('#sb-key').value.trim() });
-  setStatus($('#sb-status'), 'Αποθηκεύτηκε. Δοκίμασε τη σύνδεση.', true);
-});
+$('#sync-now').addEventListener('click', () => store.syncNow());
 
-$('#sb-test').addEventListener('click', async () => {
-  setStatus($('#sb-status'), 'Γίνεται έλεγχος…', true);
-  try {
-    await store.testConnection();
-    setStatus($('#sb-status'), 'Η σύνδεση δουλεύει. Οι νέες εγγραφές θα συγχρονίζονται αυτόματα.', true);
-  } catch (err) {
-    setStatus($('#sb-status'), 'Απέτυχε: ' + err.message, false);
-  }
-});
+window.addEventListener('lean:sync', renderSyncStatus);
 
-$('#sb-pull').addEventListener('click', async () => {
-  setStatus($('#sb-status'), 'Γίνεται λήψη…', true);
-  try {
-    await store.pullFromCloud();
-    state.sessions = store.read('sessions', []);
-    state.bodyweight = store.read('bodyweight', []);
-    state.measurements = store.read('measurements', []);
-    renderAll();
-    setStatus($('#sb-status'), 'Τα δεδομένα ήρθαν από το cloud.', true);
-  } catch (err) {
-    setStatus($('#sb-status'), 'Απέτυχε: ' + err.message, false);
-  }
+/* Όταν έρθουν νέα δεδομένα από άλλη συσκευή, ανανέωσε τις οθόνες —
+   εκτός αν γράφεις εκείνη τη στιγμή ένα σετ. */
+window.addEventListener('lean:data', () => {
+  state.sessions = store.read('sessions', []);
+  state.bodyweight = store.read('bodyweight', []);
+  state.measurements = store.read('measurements', []);
+  state.profile = store.read('profile', null);
+  if (state.editing) return;
+  loadProfile();
+  renderAll();
 });
 
 $('#export-btn').addEventListener('click', () => {
@@ -748,9 +771,9 @@ $('#import-file').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-$('#reset-btn').addEventListener('click', () => {
-  if (!confirm('Θα διαγραφούν όλες οι προπονήσεις, μετρήσεις και ρυθμίσεις από αυτή τη συσκευή. Συνέχεια;')) return;
-  store.clearAll();
+$('#reset-btn').addEventListener('click', async () => {
+  if (!confirm('Θα διαγραφούν όλες οι προπονήσεις και οι μετρήσεις, και από τη συσκευή και από το cloud. Συνέχεια;')) return;
+  await store.clearAll();
   state.sessions = [];
   state.bodyweight = [];
   state.measurements = [];
@@ -789,3 +812,6 @@ renderGuide();
 loadProfile();
 renderAll();
 renderSettings();
+
+/* Πρώτος γύρος συγχρονισμού μόλις σταθεί η οθόνη. */
+store.syncNow();
