@@ -788,9 +788,8 @@ function renderRatio() {
   }
 }
 
-function renderVolume() {
-  const host = $('#volume-list');
-  host.innerHTML = '';
+/* Σετ ανά μυϊκή ομάδα τις τελευταίες 7 ημέρες. Το χρησιμοποιεί και η αναφορά PDF. */
+function volumeCounts() {
   const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const counts = {};
   state.sessions
@@ -802,6 +801,13 @@ function renderVolume() {
         counts[ex.group] = (counts[ex.group] || 0) + sets.filter(Boolean).length;
       });
     });
+  return counts;
+}
+
+function renderVolume() {
+  const host = $('#volume-list');
+  host.innerHTML = '';
+  const counts = volumeCounts();
 
   WEEKLY_VOLUME.forEach((v) => {
     const done = counts[v.group] || 0;
@@ -899,23 +905,37 @@ $('#n-calc').addEventListener('click', () => {
   renderNutrition();
 });
 
+/* Mifflin-St Jeor και μακροθρεπτικά. Κοινό για την οθόνη και την αναφορά PDF. */
+function computeNutrition(p) {
+  if (!p || !p.weight || !p.height || !p.age) return null;
+  const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
+  const tdee = bmr * p.activity;
+  const goal = NUTRITION.goals.find((g) => g.id === p.goal) || NUTRITION.goals[0];
+  const kcal = Math.round((tdee * (1 + goal.delta)) / 10) * 10;
+  const protein = Math.round(p.weight * NUTRITION.proteinPerKg);
+  const fat = Math.round(p.weight * NUTRITION.fatPerKg);
+  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+  return {
+    bmr,
+    tdee,
+    goal,
+    kcal,
+    protein,
+    fat,
+    carbs,
+    perMeal: Math.round(protein / 4),
+    low: kcal < NUTRITION.caloriesFloor
+  };
+}
+
 function renderNutrition() {
   const p = state.profile;
   const host = $('#n-results');
   if (!p) return;
 
-  /* Mifflin-St Jeor */
-  const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
-  const tdee = bmr * p.activity;
-  const goal = NUTRITION.goals.find((g) => g.id === p.goal);
-  const kcal = Math.round((tdee * (1 + goal.delta)) / 10) * 10;
-
-  const protein = Math.round(p.weight * NUTRITION.proteinPerKg);
-  const fat = Math.round(p.weight * NUTRITION.fatPerKg);
-  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
-  const perMeal = Math.round(protein / 4);
-
-  const low = kcal < NUTRITION.caloriesFloor;
+  const n = computeNutrition(p);
+  if (!n) return;
+  const { tdee, goal, kcal, protein, fat, carbs, perMeal, low } = n;
 
   host.innerHTML = `
     <h3>Ημερήσιοι στόχοι</h3>
@@ -1060,7 +1080,10 @@ function setStatus(el, message, ok) {
   el.innerHTML = `<div class="status ${ok ? 'ok' : 'err'}">${message}</div>`;
 }
 
-$('#sync-now').addEventListener('click', () => store.syncNow());
+/* Το κουμπί χειροκίνητου συγχρονισμού δεν υπάρχει πια στην οθόνη —
+   ο συγχρονισμός γίνεται μόνος του. Η τελεία στην κεφαλίδα δείχνει την κατάσταση. */
+const syncNowBtn = $('#sync-now');
+if (syncNowBtn) syncNowBtn.addEventListener('click', () => store.syncNow());
 
 const planReset = $('#plan-reset');
 if (planReset) {
@@ -1089,14 +1112,423 @@ window.addEventListener('lean:data', () => {
   renderPlan();
 });
 
+/* ---------- Αναφορά PDF ---------- */
+/* Φτιάχνεται σαν κανονικό τυπωμένο έγγραφο και ανοίγει στο παράθυρο
+   εκτύπωσης του browser, όπου διαλέγεις «Αποθήκευση ως PDF».
+   Χωρίς βιβλιοθήκες — έτσι τα ελληνικά βγαίνουν σωστά παντού. */
+
+const longDate = (iso) =>
+  new Date(iso + 'T00:00:00').toLocaleDateString('el-GR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+const MARK_SVG =
+  '<svg class="mark" viewBox="0 0 512 512" width="46" height="46" aria-hidden="true">' +
+  '<rect width="512" height="512" rx="114" fill="#0a0a0a"/>' +
+  '<polygon points="296,48 168,288 240,288 208,464 344,224 272,224" fill="#e8ff47"/></svg>';
+
+function tableHTML(head, rows) {
+  if (!rows.length) return '';
+  const th = head
+    .map((h, i) => `<th${i ? ' class="num"' : ''}>${esc(h)}</th>`)
+    .join('');
+  const tb = rows
+    .map(
+      (r) =>
+        '<tr>' +
+        r.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('') +
+        '</tr>'
+    )
+    .join('');
+  return `<table><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table>`;
+}
+
+/* Συγκεντρωτικά ανά άσκηση, από όλο το ιστορικό. */
+function reportStats() {
+  const sessions = sortedSessions().filter(
+    (s) => s.entries && Object.keys(s.entries).length
+  );
+  let totalSets = 0;
+  let totalVolume = 0;
+  const byExercise = new Map();
+
+  sessions.forEach((s) => {
+    Object.entries(s.entries).forEach(([exId, sets]) => {
+      const list = (sets || []).filter(Boolean);
+      if (!list.length) return;
+      const ex = exById(exId);
+      const best = Math.max(...list.map((x) => e1rm(x.w, x.r)));
+      const volume = list.reduce((a, x) => a + x.w * x.r, 0);
+      totalSets += list.length;
+      totalVolume += volume;
+
+      /* Το ίδιο όνομα σε δύο ημέρες (π.χ. πλάγιες άρσεις) μετράει ως μία γραμμή. */
+      const name = ex ? ex.name : 'Άσκηση εκτός προγράμματος';
+      const rec = byExercise.get(name) || {
+        name,
+        group: ex ? ex.group : '—',
+        bodyweight: !!(ex && ex.bodyweight),
+        days: 0,
+        sets: 0,
+        volume: 0,
+        first: null,
+        last: null,
+        peak: 0
+      };
+      rec.days++;
+      rec.sets += list.length;
+      rec.volume += volume;
+      rec.peak = Math.max(rec.peak, best);
+      if (!rec.first) rec.first = { date: s.date, value: best };
+      rec.last = { date: s.date, value: best };
+      byExercise.set(name, rec);
+    });
+  });
+
+  return {
+    sessions,
+    totalSets,
+    totalVolume,
+    exercises: [...byExercise.values()].sort((a, b) => b.sets - a.sets)
+  };
+}
+
+/* Τα σετ μιας συνεδρίας, στη σειρά που έχουν στο πρόγραμμα της ημέρας. */
+function sessionRows(s) {
+  const order = dayExercises(s.day, true).map((e) => e.id);
+  return Object.entries(s.entries)
+    .map(([exId, sets]) => {
+      const list = (sets || []).filter(Boolean);
+      if (!list.length) return null;
+      const ex = exById(exId);
+      return {
+        rank: order.indexOf(exId) < 0 ? 99 : order.indexOf(exId),
+        name: ex ? ex.name : 'Άσκηση',
+        bodyweight: !!(ex && ex.bodyweight),
+        sets: list
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.rank - b.rank);
+}
+
+function reportHTML() {
+  const st = reportStats();
+  const bw = [...state.bodyweight].sort((a, b) => a.date.localeCompare(b.date));
+  const ms = [...state.measurements].sort((a, b) => a.date.localeCompare(b.date));
+  const counts = volumeCounts();
+  const wk = weekNumber();
+  const nutrition = computeNutrition(state.profile);
+
+  const period = st.sessions.length
+    ? `${longDate(st.sessions[0].date)} — ${longDate(st.sessions[st.sessions.length - 1].date)}`
+    : 'Καμία καταγεγραμμένη προπόνηση ακόμη';
+
+  /* Σύνοψη */
+  const boxes = [
+    [String(st.sessions.length), 'προπονήσεις'],
+    [wk == null ? '—' : String(wk), wk === 1 ? 'εβδομάδα' : 'εβδομάδες'],
+    [String(st.totalSets), 'σετ'],
+    [num(st.totalVolume, 0), 'κιλά συνολικός όγκος']
+  ]
+    .map(
+      ([v, l]) =>
+        `<div class="box"><span class="box-n">${esc(v)}</span><span class="box-l">${esc(l)}</span></div>`
+    )
+    .join('');
+
+  /* Δύναμη ανά άσκηση */
+  const strengthRows = st.exercises.map((e) => {
+    const from = e.first ? e.first.value : 0;
+    const to = e.last ? e.last.value : 0;
+    const d = to - from;
+    const sign = d > 0 ? '+' : '';
+    const cls = d > 0 ? 'up' : d < 0 ? 'down' : '';
+    const label = `<strong>${esc(e.name)}</strong><span class="sub"> ${esc(e.group)}</span>`;
+    /* Χωρίς εξωτερική επιβάρυνση δεν βγάζει νόημα το 1RM. */
+    if (e.peak <= 0) {
+      return [label, String(e.days), String(e.sets), '—', '—', '<span class="sub">μόνο επαναλήψεις</span>'];
+    }
+    return [
+      label,
+      String(e.days),
+      String(e.sets),
+      num(from) + ' kg',
+      num(to) + ' kg',
+      `<span class="${cls}">${sign}${num(d)} kg</span>`
+    ];
+  });
+
+  const strength = strengthRows.length
+    ? tableHTML(
+        ['Άσκηση', 'Προπ.', 'Σετ', 'Αρχή', 'Τώρα', 'Μεταβολή'],
+        strengthRows
+      ) +
+      '<p class="note">Εκτιμώμενο 1RM με τον τύπο Epley από το καλύτερο σετ κάθε προπόνησης. Χρησιμεύει για να συγκρίνεις σετ με διαφορετικές επαναλήψεις, δεν είναι μέτρηση μονής μέγιστης προσπάθειας.</p>'
+    : '<p class="empty">Δεν υπάρχουν ακόμη καταγεγραμμένα σετ.</p>';
+
+  /* Σωματικό βάρος */
+  let bodyweight = '<p class="empty">Δεν υπάρχουν ζυγίσματα.</p>';
+  if (bw.length) {
+    const recent = bw.slice(-7);
+    const avg = recent.reduce((a, r) => a + r.kg, 0) / recent.length;
+    const delta = bw[bw.length - 1].kg - bw[0].kg;
+    const rows = bw
+      .slice(-24)
+      .reverse()
+      .map((r, i, arr) => {
+        const prev = arr[i + 1];
+        const d = prev ? r.kg - prev.kg : null;
+        return [
+          longDate(r.date),
+          num(r.kg) + ' kg',
+          d == null ? '—' : (d >= 0 ? '+' : '') + num(d) + ' kg'
+        ];
+      });
+    bodyweight =
+      `<div class="strip">` +
+      `<span><b>${num(bw[bw.length - 1].kg)} kg</b> τελευταίο</span>` +
+      `<span><b>${num(avg)} kg</b> μέσος όρος 7 τελευταίων</span>` +
+      `<span><b>${delta >= 0 ? '+' : ''}${num(delta)} kg</b> από την αρχή</span>` +
+      `</div>` +
+      tableHTML(['Ημερομηνία', 'Βάρος', 'Διαφορά'], rows);
+  }
+
+  /* Ώμοι προς μέση */
+  let ratio = '<p class="empty">Δεν υπάρχουν μετρήσεις.</p>';
+  if (ms.length) {
+    const latest = ms[ms.length - 1];
+    const rows = ms
+      .slice(-16)
+      .reverse()
+      .map((r) => [
+        longDate(r.date),
+        num(r.shoulders) + ' εκ.',
+        num(r.waist) + ' εκ.',
+        num(r.shoulders / r.waist, 2)
+      ]);
+    ratio =
+      `<div class="strip"><span><b>${num(latest.shoulders / latest.waist, 2)}</b> λόγος ώμων προς μέση</span>` +
+      `<span><b>${num(latest.shoulders)} εκ.</b> ώμοι</span>` +
+      `<span><b>${num(latest.waist)} εκ.</b> μέση</span></div>` +
+      tableHTML(['Ημερομηνία', 'Ώμοι', 'Μέση', 'Λόγος'], rows) +
+      '<p class="note">Γύρω στο 1.4 θεωρείται έντονα αθλητική σιλουέτα. Ανεβαίνει είτε πλαταίνοντας τους ώμους είτε στενεύοντας τη μέση.</p>';
+  }
+
+  /* Εβδομαδιαίος όγκος */
+  const volume = tableHTML(
+    ['Μυϊκή ομάδα', 'Σετ 7 ημερών', 'Στόχος'],
+    WEEKLY_VOLUME.map((v) => [esc(v.group), String(counts[v.group] || 0), esc(v.target)])
+  );
+
+  /* Διατροφή */
+  const diet = nutrition
+    ? `<div class="strip"><span><b>${nutrition.kcal.toLocaleString('el-GR')}</b> θερμίδες</span>` +
+      `<span><b>${nutrition.protein} γρ.</b> πρωτεΐνη</span>` +
+      `<span><b>${nutrition.carbs} γρ.</b> υδατάνθρακες</span>` +
+      `<span><b>${nutrition.fat} γρ.</b> λιπαρά</span></div>` +
+      `<p class="note">Στόχος: ${esc(nutrition.goal.label)}. Συντήρηση περίπου ${Math.round(nutrition.tdee / 10) * 10} θερμίδες (Mifflin-St Jeor). Υπολογισμός αφετηρίας από εξίσωση, όχι μέτρηση.</p>`
+    : '';
+
+  /* Ημερολόγιο */
+  const diary = st.sessions.length
+    ? [...st.sessions]
+        .reverse()
+        .map((s) => {
+          const rows = sessionRows(s);
+          const setCount = rows.reduce((a, r) => a + r.sets.length, 0);
+          const vol = rows.reduce(
+            (a, r) => a + r.sets.reduce((b, x) => b + x.w * x.r, 0),
+            0
+          );
+          const lines = rows
+            .map(
+              (r) =>
+                `<div class="line"><span class="ex">${esc(r.name)}</span>` +
+                `<span class="ss">${r.sets
+                  .map((x) => (x.w > 0 ? `${num(x.w)}×${x.r}` : `${x.r} επαν.`))
+                  .join('  ·  ')}</span></div>`
+            )
+            .join('');
+          return (
+            `<div class="day"><div class="day-head">` +
+            `<span class="day-title">Ημέρα ${PROGRAM[s.day] ? PROGRAM[s.day].letter : s.day} · ${longDate(s.date)}${s.done ? '' : ' · ανοιχτή'}</span>` +
+            `<span class="day-meta">${setCount} σετ · ${num(vol, 0)} kg</span>` +
+            `</div>${lines}</div>`
+          );
+        })
+        .join('')
+    : '<p class="empty">Δεν υπάρχει ακόμη ιστορικό.</p>';
+
+  const title = `Τσακ — αναφορά προπόνησης ${today()}`;
+
+  return `<!DOCTYPE html>
+<html lang="el"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+  @page { size: A4; margin: 15mm 13mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #ececea; color: #16160f;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'IBM Plex Sans', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10.5pt; line-height: 1.45;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .bar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    background: #0a0a0a; color: #efefef; padding: 12px 18px; font-size: 13.5px;
+  }
+  .bar button {
+    background: #e8ff47; color: #000; border: 0; border-radius: 8px;
+    padding: 11px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  .page { max-width: 196mm; margin: 0 auto; background: #fff; padding: 15mm 14mm 18mm; }
+  .head { display: flex; align-items: center; gap: 12px; border-bottom: 2.5px solid #16160f; padding-bottom: 10px; }
+  .mark { flex: 0 0 auto; }
+  .head h1 { font-size: 23pt; margin: 0; letter-spacing: -0.01em; line-height: 1; }
+  .kicker { margin: 3px 0 0; font-size: 8.5pt; letter-spacing: 0.22em; text-transform: uppercase; color: #6a6a60; }
+  .issued { margin-left: auto; text-align: right; font-size: 8.5pt; color: #6a6a60; line-height: 1.5; }
+  .issued b { display: block; font-size: 10.5pt; color: #16160f; }
+  .period { margin: 8px 0 0; font-size: 10pt; color: #4a4a42; }
+  h2 {
+    font-size: 9pt; letter-spacing: 0.18em; text-transform: uppercase; color: #16160f;
+    margin: 22px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #16160f;
+    break-after: avoid; page-break-after: avoid;
+  }
+  .boxes { display: flex; gap: 8px; margin-top: 14px; }
+  .box { flex: 1; border: 1px solid #d8d8d2; border-radius: 6px; padding: 9px 10px; margin-right: 8px; }
+  .box:last-child { margin-right: 0; }
+  .box-n { display: block; font-size: 18pt; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .box-l { display: block; font-size: 8pt; color: #6a6a60; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  thead { display: table-header-group; }
+  th {
+    text-align: left; font-size: 7.8pt; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #6a6a60; font-weight: 600; padding: 5px 6px; border-bottom: 1px solid #16160f;
+  }
+  td { padding: 6px; border-bottom: 1px solid #ebebe6; font-variant-numeric: tabular-nums; vertical-align: baseline; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  .num { text-align: right; white-space: nowrap; }
+  .sub { color: #8a8a80; font-size: 8.5pt; }
+  .up { color: #1c7a3c; font-weight: 600; }
+  .down { color: #a33a3a; }
+  .strip { display: flex; flex-wrap: wrap; gap: 18px; margin: 2px 0 10px; font-size: 9.5pt; color: #6a6a60; }
+  .strip span { margin-right: 18px; }
+  .strip span:last-child { margin-right: 0; }
+  .strip b { color: #16160f; font-size: 12.5pt; font-variant-numeric: tabular-nums; }
+  .note { font-size: 8.8pt; color: #6a6a60; margin: 7px 0 0; }
+  .empty { font-size: 9.5pt; color: #8a8a80; margin: 6px 0 0; }
+  .day { break-inside: avoid; page-break-inside: avoid; margin-top: 11px; }
+  .day + .day { padding-top: 8px; border-top: 1px solid #ebebe6; }
+  .day-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
+  .day-title { font-weight: 700; }
+  .day-meta { font-size: 9pt; color: #6a6a60; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .line { display: flex; justify-content: space-between; gap: 14px; font-size: 9.5pt; padding: 1.5px 0; }
+  .ex { color: #3a3a33; }
+  .ss { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #d8d8d2; font-size: 8.2pt; color: #8a8a80; }
+  @media print {
+    .bar { display: none; }
+    body { background: #fff; font-size: 10pt; }
+    .page { max-width: none; padding: 0; }
+  }
+</style></head>
+<body>
+<div class="bar">
+  <button type="button" onclick="window.print()">Αποθήκευση ως PDF</button>
+  <span>Στο παράθυρο εκτύπωσης διάλεξε «Αποθήκευση ως PDF». Στο iPhone: Κοινή χρήση → Εκτύπωση → Αποθήκευση σε αρχεία.</span>
+</div>
+<div class="page">
+  <header class="head">
+    ${MARK_SVG}
+    <div><h1>Τσακ</h1><p class="kicker">Αναφορά προπόνησης</p></div>
+    <div class="issued">Εκδόθηκε<b>${esc(longDate(today()))}</b></div>
+  </header>
+  <p class="period">${esc(period)}</p>
+  <div class="boxes">${boxes}</div>
+
+  <h2>Δύναμη ανά άσκηση</h2>
+  ${strength}
+
+  <h2>Σωματικό βάρος</h2>
+  ${bodyweight}
+
+  <h2>Ώμοι προς μέση</h2>
+  ${ratio}
+
+  <h2>Εβδομαδιαίος όγκος</h2>
+  ${volume}
+  <p class="note">Σετ που καταγράφηκαν τις τελευταίες 7 ημέρες, σε σχέση με το εβδομαδιαίο εύρος που στηρίζει η έρευνα.</p>
+
+  ${nutrition ? '<h2>Διατροφικοί στόχοι</h2>' + diet : ''}
+
+  <h2>Ημερολόγιο προπονήσεων</h2>
+  ${diary}
+
+  <footer>Τσακ — καρνέ προπόνησης. Τα νούμερα είναι όσα κατέγραψες εσύ. Δεν είναι ιατρική συμβουλή.</footer>
+</div>
+<script>setTimeout(function(){ try { window.focus(); window.print(); } catch (e) {} }, 600);<\/script>
+</body></html>`;
+}
+
+function printViaFrame(html) {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText =
+    'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;';
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  setTimeout(() => {
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (e) { /* αγνόησε */ }
+    setTimeout(() => frame.remove(), 60000);
+  }, 500);
+}
+
 $('#export-btn').addEventListener('click', () => {
+  const html = reportHTML();
+  let win = null;
+  try {
+    win = window.open('', '_blank');
+  } catch (e) { /* αγνόησε */ }
+
+  if (win && win.document) {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    setStatus(
+      $('#data-status'),
+      'Η αναφορά άνοιξε σε νέα καρτέλα. Διάλεξε «Αποθήκευση ως PDF» στο παράθυρο εκτύπωσης.',
+      true
+    );
+    return;
+  }
+
+  printViaFrame(html);
+  setStatus(
+    $('#data-status'),
+    'Ανοίγει το παράθυρο εκτύπωσης. Διάλεξε «Αποθήκευση ως PDF».',
+    true
+  );
+});
+
+$('#backup-btn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(store.exportAll(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `tsak-${today()}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus($('#data-status'), 'Το αρχείο κατέβηκε.', true);
+  setStatus($('#data-status'), 'Το αντίγραφο ασφαλείας κατέβηκε.', true);
 });
 
 $('#import-btn').addEventListener('click', () => $('#import-file').click());

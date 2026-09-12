@@ -214,21 +214,15 @@
     </div>
 
     <div class="panel">
-      <h3>Συγχρονισμός</h3>
-      <p class="hint" style="margin-top:0">Γίνεται μόνος του. Κάθε σετ που καταγράφεις ανεβαίνει αυτόματα, και τα δεδομένα σου σε ακολουθούν σε κινητό και υπολογιστή. Χωρίς δίκτυο η εφαρμογή δουλεύει κανονικά — ό,τι έμεινε πίσω ανεβαίνει μόλις ξαναβρεθεί σύνδεση.</p>
-      <div id="sync-status"></div>
-      <div class="btn-row">
-        <button class="btn btn-quiet" id="sync-now">Συγχρονισμός τώρα</button>
-      </div>
-    </div>
-
-    <div class="panel">
       <h3>Τα δεδομένα σου</h3>
+      <button class="btn btn-primary btn-block" id="export-btn">Εξαγωγή σε PDF</button>
+      <p class="hint">Φτιάχνει μια πλήρη αναφορά: δύναμη ανά άσκηση, σωματικό βάρος, μετρήσεις, όγκο και ολόκληρο το ημερολόγιο. Ανοίγει το παράθυρο εκτύπωσης — διάλεξε <strong>Αποθήκευση ως PDF</strong>. Στο iPhone: Κοινή χρήση → Εκτύπωση → Αποθήκευση σε αρχεία.</p>
       <div class="btn-row">
-        <button class="btn btn-quiet" id="export-btn">Εξαγωγή αρχείου</button>
+        <button class="btn btn-quiet" id="backup-btn">Αντίγραφο ασφαλείας (JSON)</button>
         <button class="btn btn-quiet" id="import-btn">Εισαγωγή αρχείου</button>
         <button class="btn btn-danger" id="reset-btn">Διαγραφή όλων</button>
       </div>
+      <p class="hint">Το JSON είναι για μεταφορά σε άλλη συσκευή — το διαβάζει η «Εισαγωγή». Το PDF είναι για διάβασμα και εκτύπωση.</p>
       <input type="file" id="import-file" accept="application/json" class="sr-only">
       <div id="data-status"></div>
     </div>
