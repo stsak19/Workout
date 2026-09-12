@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LEAN — καρνέ προπόνησης</title>
+<meta name="description" content="Καταγραφή προπόνησης και προόδου για αθλητικό, γραμμωμένο σώμα. Full-body 3 φορές την εβδομάδα με αυτόματη προοδευτική επιβάρυνση.">
+<meta name="theme-color" content="#15181c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Roboto+Condensed:wght@700&display=swap&subset=greek,latin" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+
+<nav class="tabbar">
+  <div class="tabbar-inner" role="tablist" aria-label="Κύρια πλοήγηση">
+    <button class="tab" role="tab" data-view="train" aria-selected="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M7 6v12M17 6v12M7 12h10"/></svg>
+      Προπόνηση
+    </button>
+    <button class="tab" role="tab" data-view="progress" aria-selected="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>
+      Πρόοδος
+    </button>
+    <button class="tab" role="tab" data-view="nutrition" aria-selected="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a3 3 0 006 0V3M9 11v10M18 3c-1.5 2-2 4-2 6s.5 3 2 3 2-1 2-3-.5-4-2-6zM18 12v9"/></svg>
+      Διατροφή
+    </button>
+    <button class="tab" role="tab" data-view="guide" aria-selected="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5a2 2 0 012-2h13v18H6a2 2 0 01-2-2z"/><path d="M8 7h7M8 11h7"/></svg>
+      Οδηγός
+    </button>
+    <button class="tab" role="tab" data-view="settings" aria-selected="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+      Ρυθμίσεις
+    </button>
+  </div>
+</nav>
+
+<div class="shell">
+
+  <header class="masthead">
+    <h1 class="wordmark">LEAN</h1>
+    <div class="masthead-meta">
+      <strong id="week-count">—</strong>
+      <span id="week-label">ξεκίνα σήμερα</span>
+    </div>
+  </header>
+
+  <!-- ΠΡΟΠΟΝΗΣΗ -->
+  <main id="view-train" role="tabpanel">
+    <div class="daystrip" id="daystrip"></div>
+    <div class="section-head">
+      <h2 id="day-title">—</h2>
+      <p id="day-focus"></p>
+    </div>
+    <div id="exercise-list"></div>
+    <div class="btn-row">
+      <button class="btn btn-quiet btn-block" id="finish-session">Κλείσε τη σημερινή προπόνηση</button>
+    </div>
+    <p class="hint">Πάτα ένα σετ για να καταγράψεις κιλά και επαναλήψεις. Όταν κλειδώσεις όλα τα σετ στο πάνω όριο του εύρους, η άσκηση σου προτείνει το επόμενο βάρος.</p>
+  </main>
+
+  <!-- ΠΡΟΟΔΟΣ -->
+  <main id="view-progress" role="tabpanel" hidden>
+    <div class="section-head">
+      <h2>Πρόοδος</h2>
+      <p>Ο μόνος αξιόπιστος δείκτης είναι τα νούμερα που ανεβαίνουν.</p>
+    </div>
+    <div class="view-grid">
+      <div>
+        <div class="panel">
+          <h3>Φορτίο ανά άσκηση</h3>
+          <div class="field">
+            <label for="progress-exercise">Άσκηση</label>
+            <select id="progress-exercise"></select>
+          </div>
+          <div id="exercise-chart"></div>
+          <div id="exercise-stats"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Σωματικό βάρος</h3>
+          <div class="field-pair">
+            <div class="field">
+              <label for="bw-input">Κιλά σήμερα</label>
+              <input type="number" id="bw-input" step="0.1" min="30" max="250" inputmode="decimal" placeholder="75.4">
+            </div>
+            <div class="field" style="align-self:end">
+              <button class="btn btn-primary btn-block" id="bw-save">Καταχώρηση</button>
+            </div>
+          </div>
+          <div id="bw-chart"></div>
+          <div id="bw-stats"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel">
+          <h3>Ώμοι προς μέση</h3>
+          <p class="hint" style="margin-top:0">Ο λόγος που καθορίζει την αθλητική σιλουέτα. Μέτρα με μεζούρα στο πλατύτερο σημείο των ώμων και στον αφαλό, την ίδια ώρα της ημέρας.</p>
+          <div class="field-pair">
+            <div class="field">
+              <label for="m-shoulders">Ώμοι (εκ.)</label>
+              <input type="number" id="m-shoulders" step="0.5" inputmode="decimal" placeholder="112">
+            </div>
+            <div class="field">
+              <label for="m-waist">Μέση (εκ.)</label>
+              <input type="number" id="m-waist" step="0.5" inputmode="decimal" placeholder="80">
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" id="m-save">Καταχώρηση μέτρησης</button>
+          <div id="ratio-display"></div>
+          <div id="ratio-chart"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Εβδομαδιαίος όγκος</h3>
+          <div id="volume-list"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Ιστορικό προπονήσεων</h3>
+          <div id="history-list"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ΔΙΑΤΡΟΦΗ -->
+  <main id="view-nutrition" role="tabpanel" hidden>
+    <div class="section-head">
+      <h2>Διατροφή</h2>
+      <p>Υπολογισμός αφετηρίας. Προσάρμοσε μετά από 3–4 εβδομάδες με βάση το τι δείχνει η ζυγαριά και ο καθρέφτης.</p>
+    </div>
+    <div class="view-grid">
+      <div class="panel">
+        <h3>Τα στοιχεία σου</h3>
+        <div class="field-pair">
+          <div class="field">
+            <label for="n-weight">Βάρος (κιλά)</label>
+            <input type="number" id="n-weight" step="0.5" min="30" max="250" inputmode="decimal">
+          </div>
+          <div class="field">
+            <label for="n-height">Ύψος (εκ.)</label>
+            <input type="number" id="n-height" step="1" min="120" max="230" inputmode="numeric">
+          </div>
+        </div>
+        <div class="field-pair">
+          <div class="field">
+            <label for="n-age">Ηλικία</label>
+            <input type="number" id="n-age" step="1" min="16" max="90" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="n-sex">Φύλο</label>
+            <select id="n-sex">
+              <option value="m">Άνδρας</option>
+              <option value="f">Γυναίκα</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="n-activity">Δραστηριότητα εκτός γυμναστηρίου</label>
+          <select id="n-activity"></select>
+        </div>
+        <div class="field">
+          <label for="n-goal">Στόχος</label>
+          <select id="n-goal"></select>
+        </div>
+        <button class="btn btn-primary btn-block" id="n-calc">Υπολόγισε</button>
+      </div>
+
+      <div class="panel" id="n-results">
+        <h3>Ημερήσιοι στόχοι</h3>
+        <div class="empty">Συμπλήρωσε τα στοιχεία σου για να δεις τους στόχους.</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ΟΔΗΓΟΣ -->
+  <main id="view-guide" role="tabpanel" hidden>
+    <div class="section-head">
+      <h2>Οδηγός</h2>
+      <p>Το σκεπτικό πίσω από κάθε επιλογή του προγράμματος.</p>
+    </div>
+    <div id="guide-list"></div>
+    <p class="hint">Δεν είναι ιατρική συμβουλή. Συμβουλέψου γιατρό πριν ξεκινήσεις πρόγραμμα άσκησης ή συμπληρώματα, ειδικά αν έχεις κάποια πάθηση ή παίρνεις φάρμακα.</p>
+  </main>
+
+  <!-- ΡΥΘΜΙΣΕΙΣ -->
+  <main id="view-settings" role="tabpanel" hidden>
+    <div class="section-head">
+      <h2>Ρυθμίσεις</h2>
+      <p id="storage-mode"></p>
+    </div>
+
+    <div class="panel">
+      <h3>Συγχρονισμός με Supabase</h3>
+      <p class="hint" style="margin-top:0">Προαιρετικό. Χωρίς αυτό, όλα μένουν στη συσκευή σου. Με αυτό, τα δεδομένα σου ακολουθούν σε κινητό και υπολογιστή.</p>
+      <div class="field">
+        <label for="sb-url">Project URL</label>
+        <input type="text" id="sb-url" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="sb-key">Anon public key</label>
+        <input type="text" id="sb-key" placeholder="eyJhbGci..." autocomplete="off" spellcheck="false">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="sb-save">Αποθήκευση</button>
+        <button class="btn btn-quiet" id="sb-test">Δοκιμή σύνδεσης</button>
+        <button class="btn btn-quiet" id="sb-pull">Φέρε από το cloud</button>
+      </div>
+      <div id="sb-status"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Τα δεδομένα σου</h3>
+      <div class="btn-row">
+        <button class="btn btn-quiet" id="export-btn">Εξαγωγή αρχείου</button>
+        <button class="btn btn-quiet" id="import-btn">Εισαγωγή αρχείου</button>
+        <button class="btn btn-danger" id="reset-btn">Διαγραφή όλων</button>
+      </div>
+      <input type="file" id="import-file" accept="application/json" class="sr-only">
+      <div id="data-status"></div>
+    </div>
+  </main>
+
+</div>
+
+<div class="timer" id="timer" hidden>
+  <span class="timer-count" id="timer-count">2:00</span>
+  <span class="timer-label" id="timer-label">Ξεκούραση</span>
+  <button id="timer-skip">Παράλειψη</button>
+  <div class="timer-bar" id="timer-bar"></div>
+</div>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
