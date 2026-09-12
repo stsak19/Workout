@@ -87,7 +87,11 @@ export function importAll(payload) {
 
 let client = null;
 let clientKey = '';
-const SYNCED = { sessions: 'sessions', bodyweight: 'bodyweight', measurements: 'measurements' };
+const SYNCED = {
+  sessions: 'lean_sessions',
+  bodyweight: 'lean_bodyweight',
+  measurements: 'lean_measurements'
+};
 
 export function supabaseConfig() {
   return read('settings', {});
@@ -107,7 +111,7 @@ export async function getClient() {
 export async function testConnection() {
   const sb = await getClient();
   if (!sb) throw new Error('Συμπλήρωσε πρώτα URL και anon key.');
-  const { error } = await sb.from('sessions').select('id').limit(1);
+  const { error } = await sb.from('lean_sessions').select('id').limit(1);
   if (error) throw new Error(error.message);
   return true;
 }
