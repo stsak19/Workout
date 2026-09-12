@@ -14,6 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;600&family=Roboto+Condensed:wght@700&display=swap&subset=greek,latin" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="assets/css/styles.css">
 </head>
 <body>
@@ -249,6 +250,8 @@
   <div class="timer-bar" id="timer-bar"></div>
 </div>
 
-<script type="module" src="assets/js/app.js"></script>
+<script type="module">
+  import('./app.js').catch(() => import('./assets/js/app.js'));
+</script>
 </body>
 </html>
