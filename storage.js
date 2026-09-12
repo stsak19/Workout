@@ -22,8 +22,12 @@ const TABLES = {
 
 const PROFILE_TABLE = 'lean_profile';
 const PROFILE_ID = 'me';
+const PLAN_ID = 'plan';
 
-const SYNCED = [...Object.keys(TABLES), 'profile'];
+/* Κλειδιά που ζουν ως μία γραμμή στον πίνακα lean_profile. */
+const SINGLE = { profile: PROFILE_ID, plan: PLAN_ID };
+
+const SYNCED = [...Object.keys(TABLES), 'profile', 'plan'];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -87,9 +91,9 @@ function bare(row) {
 function stamp(key, value) {
   const now = new Date().toISOString();
 
-  if (key === 'profile') {
+  if (SINGLE[key]) {
     if (!value || typeof value !== 'object') return value;
-    const prev = read('profile', null);
+    const prev = read(key, null);
     const unchanged = prev && bare(prev) === bare(value);
     return { ...value, updated_at: unchanged ? prev.updated_at || now : now };
   }
@@ -110,7 +114,7 @@ export function write(key, value) {
 }
 
 export async function clearAll() {
-  ['sessions', 'bodyweight', 'measurements', 'profile', 'settings'].forEach((k) => {
+  ['sessions', 'bodyweight', 'measurements', 'profile', 'plan', 'settings'].forEach((k) => {
     const full = PREFIX + k;
     try {
       if (hasLocal) window.localStorage.removeItem(full);
@@ -137,7 +141,8 @@ export function exportAll() {
     sessions: read('sessions', []),
     bodyweight: read('bodyweight', []),
     measurements: read('measurements', []),
-    profile: read('profile', null)
+    profile: read('profile', null),
+    plan: read('plan', null)
   };
 }
 
@@ -147,6 +152,7 @@ export function importAll(payload) {
   if (Array.isArray(payload.bodyweight)) write('bodyweight', payload.bodyweight);
   if (Array.isArray(payload.measurements)) write('measurements', payload.measurements);
   if (payload.profile) write('profile', payload.profile);
+  if (payload.plan) write('plan', payload.plan);
 }
 
 /* ---------- Κατάσταση συγχρονισμού ---------- */
@@ -194,13 +200,13 @@ function rowsFor(key) {
 }
 
 async function pushKey(sb, key) {
-  if (key === 'profile') {
-    const p = read('profile', null);
+  if (SINGLE[key]) {
+    const p = read(key, null);
     if (!p) return;
     const { updated_at, ...data } = p;
     const { error } = await sb
       .from(PROFILE_TABLE)
-      .upsert({ id: PROFILE_ID, data, updated_at: updated_at || new Date().toISOString() }, { onConflict: 'id' });
+      .upsert({ id: SINGLE[key], data, updated_at: updated_at || new Date().toISOString() }, { onConflict: 'id' });
     if (error) throw new Error(error.message);
     return;
   }
@@ -276,13 +282,17 @@ async function pullAll(sb) {
     }
   }
 
-  const { data, error } = await sb.from(PROFILE_TABLE).select('*').eq('id', PROFILE_ID).maybeSingle();
+  const { data, error } = await sb.from(PROFILE_TABLE).select('*');
   if (error) throw new Error(error.message);
-  if (data && data.data) {
-    const remote = { ...data.data, updated_at: data.updated_at };
-    const mine = read('profile', null);
+  const byId = new Map((data || []).filter(Boolean).map((r) => [r.id, r]));
+
+  for (const [key, id] of Object.entries(SINGLE)) {
+    const row = byId.get(id);
+    if (!row || !row.data) continue;
+    const remote = { ...row.data, updated_at: row.updated_at };
+    const mine = read(key, null);
     if (!mine || stampOf(remote) > stampOf(mine)) {
-      writeRaw('profile', remote);
+      writeRaw(key, remote);
       changed = true;
     }
   }

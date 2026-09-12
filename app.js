@@ -1,4 +1,4 @@
-import { PROGRAM, DAY_ORDER, WEEKLY_VOLUME, NUTRITION, GUIDE } from './data.js';
+import { PROGRAM, DAY_ORDER, WEEKLY_VOLUME, NUTRITION, GUIDE, ALTERNATIVES, GROUPS } from './data.js';
 import * as store from './storage.js';
 import { lineChart, barRow } from './charts.js';
 
@@ -30,11 +30,61 @@ const num = (n, dp = 1) =>
 /* Epley: εκτιμώμενο 1RM. Χρήσιμο για να συγκρίνεις σετ με διαφορετικές επαναλήψεις. */
 const e1rm = (w, r) => (w > 0 ? w * (1 + r / 30) : 0);
 
-const ALL_EXERCISES = DAY_ORDER.flatMap((d) =>
-  PROGRAM[d].exercises.map((ex) => ({ ...ex, day: d }))
-);
+/* Τα ονόματα ασκήσεων τα γράφει ο χρήστης, οπότε δεν μπαίνουν ποτέ ωμά σε innerHTML. */
+const esc = (s) =>
+  String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
 
-const exById = (id) => ALL_EXERCISES.find((e) => e.id === id);
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+
+/* ---------- Το πρόγραμμα όπως το θέλεις εσύ ---------- */
+/* plan.overrides: αλλαγές πάνω στις προκαθορισμένες ασκήσεις (id → πεδία)
+   plan.extras:    ασκήσεις που πρόσθεσες μόνος σου, ανά ημέρα
+   Το id της θέσης δεν αλλάζει ποτέ, οπότε το ιστορικό μένει δεμένο μαζί της. */
+
+const OVERRIDABLE = ['name', 'group', 'sets', 'repMin', 'repMax', 'rest', 'step', 'rir', 'bodyweight'];
+
+function blankPlan() {
+  return { overrides: {}, extras: { A: [], B: [], C: [] } };
+}
+
+function normalizePlan(raw) {
+  const plan = blankPlan();
+  if (raw && typeof raw === 'object') {
+    if (raw.overrides && typeof raw.overrides === 'object') plan.overrides = { ...raw.overrides };
+    DAY_ORDER.forEach((d) => {
+      const list = raw.extras && raw.extras[d];
+      if (Array.isArray(list)) plan.extras[d] = list.filter((x) => x && x.id);
+    });
+    if (raw.updated_at) plan.updated_at = raw.updated_at;
+  }
+  return plan;
+}
+
+/* Ενώνει την αρχική άσκηση με ό,τι έχεις αλλάξει. */
+function resolve(ex, day) {
+  const o = state.plan.overrides[ex.id] || {};
+  const merged = { ...ex, day };
+  OVERRIDABLE.forEach((k) => {
+    if (o[k] !== undefined) merged[k] = o[k];
+  });
+  merged.hidden = !!o.hidden;
+  merged.changed = OVERRIDABLE.some((k) => o[k] !== undefined);
+  return merged;
+}
+
+function dayExercises(d, includeHidden = false) {
+  const list = [
+    ...PROGRAM[d].exercises.map((ex) => resolve(ex, d)),
+    ...(state.plan.extras[d] || []).map((ex) => resolve({ ...ex, custom: true }, d))
+  ];
+  return includeHidden ? list : list.filter((ex) => !ex.hidden);
+}
+
+const everyExercise = () => DAY_ORDER.flatMap((d) => dayExercises(d, true));
+
+const exById = (id) => everyExercise().find((e) => e.id === id);
 
 /* ---------- Κατάσταση ---------- */
 
@@ -42,6 +92,8 @@ const state = {
   view: 'train',
   day: 'A',
   editing: null,
+  swapping: null,
+  plan: normalizePlan(store.read('plan', null)),
   sessions: store.read('sessions', []),
   bodyweight: store.read('bodyweight', []),
   measurements: store.read('measurements', []),
@@ -153,8 +205,8 @@ function renderTrain() {
   list.innerHTML = '';
   const session = sessionFor(today(), state.day);
 
-  day.exercises.forEach((ex) => {
-    const entries = (session && session.entries[ex.id]) || [];
+  dayExercises(state.day).forEach((ex) => {
+    const entries = ((session && session.entries[ex.id]) || []).slice(0, ex.sets);
     const filled = entries.filter(Boolean);
     const sug = suggestion(ex);
     const last = lastPerformance(ex.id);
@@ -169,11 +221,20 @@ function renderTrain() {
     const head = document.createElement('div');
     head.className = 'ex-top';
     head.innerHTML =
-      `<div><h3 class="ex-name">${ex.name}</h3>` +
+      `<div><h3 class="ex-name">${esc(ex.name)}</h3>` +
       `<div class="ex-prescription">${ex.sets} × ${ex.repMin}–${ex.repMax}` +
-      (ex.rir !== '—' ? ` · RIR ${ex.rir}` : '') + `</div></div>` +
-      `<span class="ex-group">${ex.group}</span>`;
+      (ex.rir && ex.rir !== '—' ? ` · RIR ${esc(ex.rir)}` : '') + `</div></div>` +
+      `<div class="ex-tools"><span class="ex-group">${esc(ex.group)}</span>` +
+      `<button type="button" class="ex-swap" aria-label="Άλλαξε την άσκηση ${esc(ex.name)}">⇄ Αλλαγή</button></div>`;
     card.appendChild(head);
+
+    $('.ex-swap', head).addEventListener('click', () => {
+      state.swapping = state.swapping === ex.id ? null : ex.id;
+      state.editing = null;
+      renderTrain();
+    });
+
+    if (state.swapping === ex.id) card.appendChild(buildSwap(ex));
 
     const sets = document.createElement('div');
     sets.className = 'sets';
@@ -227,10 +288,223 @@ function renderTrain() {
     list.appendChild(card);
   });
 
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'add-exercise';
+  add.textContent = '+ Πρόσθεσε άσκηση σε αυτή την ημέρα';
+  add.addEventListener('click', () => addExercise(state.day));
+  list.appendChild(add);
+
   const finish = $('#finish-session');
   finish.textContent =
     session && session.done ? 'Η προπόνηση είναι κλεισμένη' : 'Κλείσε τη σημερινή προπόνηση';
   finish.disabled = !!(session && session.done);
+}
+
+/* ---------- Αλλαγή άσκησης ---------- */
+
+function savePlan() {
+  save('plan');
+}
+
+/* Σβήνει τα καταγεγραμμένα σετ αυτής της θέσης, όταν βάζεις όντως άλλη άσκηση. */
+function wipeExercise(exId) {
+  let touched = false;
+  state.sessions.forEach((s) => {
+    if (s.entries && s.entries[exId]) {
+      delete s.entries[exId];
+      touched = true;
+    }
+  });
+  if (touched) save('sessions');
+}
+
+function applyPatch(ex, patch) {
+  if (ex.custom) {
+    const list = state.plan.extras[ex.day] || [];
+    const i = list.findIndex((e) => e.id === ex.id);
+    if (i >= 0) list[i] = { ...list[i], ...patch };
+    const o = state.plan.overrides[ex.id];
+    if (o) {
+      /* Στις δικές σου ασκήσεις κρατάμε μόνο το «αφαιρέθηκε». */
+      if (o.hidden) state.plan.overrides[ex.id] = { hidden: true };
+      else delete state.plan.overrides[ex.id];
+    }
+  } else {
+    const base = PROGRAM[ex.day].exercises.find((e) => e.id === ex.id) || {};
+    const o = state.plan.overrides[ex.id] && state.plan.overrides[ex.id].hidden
+      ? { hidden: true }
+      : {};
+    OVERRIDABLE.forEach((k) => {
+      const def = k === 'bodyweight' ? !!base[k] : base[k];
+      if (patch[k] !== undefined && String(patch[k]) !== String(def)) o[k] = patch[k];
+    });
+    if (Object.keys(o).length) state.plan.overrides[ex.id] = o;
+    else delete state.plan.overrides[ex.id];
+  }
+  savePlan();
+}
+
+function hideExercise(exId) {
+  state.plan.overrides[exId] = { ...(state.plan.overrides[exId] || {}), hidden: true };
+  savePlan();
+}
+
+function showExercise(exId) {
+  const o = state.plan.overrides[exId];
+  if (!o) return;
+  delete o.hidden;
+  if (!Object.keys(o).length) delete state.plan.overrides[exId];
+  savePlan();
+}
+
+function addExercise(day) {
+  const ex = {
+    id: uid(),
+    name: 'Νέα άσκηση',
+    group: 'Ώμοι',
+    sets: 3,
+    repMin: 8,
+    repMax: 12,
+    rest: 90,
+    step: 2.5,
+    rir: '1–3'
+  };
+  state.plan.extras[day].push(ex);
+  savePlan();
+  state.swapping = ex.id;
+  state.editing = null;
+  renderTrain();
+}
+
+function buildSwap(ex) {
+  const box = document.createElement('div');
+  box.className = 'swap';
+
+  const alts = ALTERNATIVES[ex.group] || [];
+  const options = [...new Set([ex.name, ...alts])];
+
+  box.innerHTML = `
+    <p class="swap-hint">Διάλεξε κάτι από τη λίστα ή γράψε ό,τι έχει το γυμναστήριό σου. Το ιστορικό της θέσης μένει, εκτός αν ζητήσεις καθαρό ξεκίνημα.</p>
+    <div class="field">
+      <label for="sw-pick">Έτοιμες επιλογές — ${esc(ex.group)}</label>
+      <select id="sw-pick">${options
+        .map((n) => `<option${n === ex.name ? ' selected' : ''}>${esc(n)}</option>`)
+        .join('')}</select>
+    </div>
+    <div class="field">
+      <label for="sw-name">Όνομα άσκησης</label>
+      <input id="sw-name" type="text" maxlength="60" value="${esc(ex.name)}">
+    </div>
+    <div class="field-pair">
+      <div class="field">
+        <label for="sw-group">Μυϊκή ομάδα</label>
+        <select id="sw-group">${GROUPS.map(
+          (g) => `<option${g === ex.group ? ' selected' : ''}>${esc(g)}</option>`
+        ).join('')}</select>
+      </div>
+      <div class="field">
+        <label for="sw-sets">Σετ</label>
+        <input id="sw-sets" type="number" inputmode="numeric" min="1" max="8" step="1" value="${ex.sets}">
+      </div>
+    </div>
+    <div class="field-pair">
+      <div class="field">
+        <label for="sw-min">Επαναλήψεις από</label>
+        <input id="sw-min" type="number" inputmode="numeric" min="1" max="60" step="1" value="${ex.repMin}">
+      </div>
+      <div class="field">
+        <label for="sw-max">έως</label>
+        <input id="sw-max" type="number" inputmode="numeric" min="1" max="60" step="1" value="${ex.repMax}">
+      </div>
+    </div>
+    <div class="field-pair">
+      <div class="field">
+        <label for="sw-step">Βήμα βάρους (kg)</label>
+        <input id="sw-step" type="number" inputmode="decimal" min="0.5" max="20" step="0.5" value="${ex.step}">
+      </div>
+      <div class="field">
+        <label for="sw-rest">Ξεκούραση (δευτ.)</label>
+        <input id="sw-rest" type="number" inputmode="numeric" min="15" max="600" step="15" value="${ex.rest}">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="sw-bw"${ex.bodyweight ? ' checked' : ''}>
+      Με το βάρος του σώματος — τα κιλά μετράνε ως επιπλέον επιβάρυνση</label>
+    <label class="check"><input type="checkbox" id="sw-fresh">
+      Καθαρό ξεκίνημα — σβήσε τα προηγούμενα σετ αυτής της θέσης</label>
+    <div class="editor-actions">
+      <button class="btn btn-primary" type="button" data-apply>Αποθήκευση</button>
+      <button class="btn btn-quiet" type="button" data-cancel>Άκυρο</button>
+    </div>
+    <div class="btn-row">
+      ${ex.changed && !ex.custom ? '<button class="btn btn-quiet" type="button" data-restore>Επαναφορά αρχικής</button>' : ''}
+      <button class="btn btn-danger" type="button" data-remove>Αφαίρεσε από την ημέρα</button>
+    </div>`;
+
+  const pick = $('#sw-pick', box);
+  const name = $('#sw-name', box);
+  const group = $('#sw-group', box);
+
+  pick.addEventListener('change', () => { name.value = pick.value; });
+
+  /* Αλλάζοντας ομάδα, αλλάζει και η λίστα με τις έτοιμες επιλογές. */
+  group.addEventListener('change', () => {
+    const list = ALTERNATIVES[group.value] || [];
+    pick.innerHTML = [...new Set([name.value, ...list])]
+      .map((n) => `<option${n === name.value ? ' selected' : ''}>${esc(n)}</option>`)
+      .join('');
+    $('label[for="sw-pick"]', box).textContent = 'Έτοιμες επιλογές — ' + group.value;
+  });
+
+  $('[data-cancel]', box).addEventListener('click', () => {
+    state.swapping = null;
+    renderTrain();
+  });
+
+  $('[data-apply]', box).addEventListener('click', () => {
+    const finalName = name.value.trim();
+    if (!finalName) { name.focus(); return; }
+
+    let lo = clamp(Math.round(Number($('#sw-min', box).value) || ex.repMin), 1, 60);
+    let hi = clamp(Math.round(Number($('#sw-max', box).value) || ex.repMax), 1, 60);
+    if (lo > hi) [lo, hi] = [hi, lo];
+
+    const patch = {
+      name: finalName,
+      group: group.value,
+      sets: clamp(Math.round(Number($('#sw-sets', box).value) || ex.sets), 1, 8),
+      repMin: lo,
+      repMax: hi,
+      step: clamp(Number($('#sw-step', box).value) || ex.step, 0.5, 20),
+      rest: clamp(Math.round(Number($('#sw-rest', box).value) || ex.rest), 15, 600),
+      bodyweight: $('#sw-bw', box).checked
+    };
+
+    if ($('#sw-fresh', box).checked) wipeExercise(ex.id);
+    applyPatch(ex, patch);
+    state.swapping = null;
+    renderAll();
+  });
+
+  const restore = $('[data-restore]', box);
+  if (restore) {
+    restore.addEventListener('click', () => {
+      delete state.plan.overrides[ex.id];
+      savePlan();
+      state.swapping = null;
+      renderAll();
+    });
+  }
+
+  $('[data-remove]', box).addEventListener('click', () => {
+    if (!confirm('Θα φύγει από την ημέρα. Τα δεδομένα της μένουν αποθηκευμένα και επιστρέφουν αν την ξαναβάλεις από τις Ρυθμίσεις.')) return;
+    hideExercise(ex.id);
+    state.swapping = null;
+    renderAll();
+  });
+
+  setTimeout(() => name.focus({ preventScroll: true }), 30);
+  return box;
 }
 
 function buildEditor(ex, index, entries, sug) {
@@ -381,7 +655,7 @@ function renderExercisePicker() {
   const current = sel.value;
   sel.innerHTML = '';
   const seen = new Set();
-  ALL_EXERCISES.forEach((ex) => {
+  everyExercise().forEach((ex) => {
     if (seen.has(ex.name)) return;
     seen.add(ex.name);
     const opt = document.createElement('option');
@@ -395,8 +669,9 @@ function renderExercisePicker() {
 $('#progress-exercise').addEventListener('change', renderExerciseChart);
 
 function renderExerciseChart() {
-  const exId = $('#progress-exercise').value || ALL_EXERCISES[0].id;
-  const ex = exById(exId);
+  const all = everyExercise();
+  const exId = $('#progress-exercise').value || (all[0] && all[0].id);
+  if (!exId) return;
   const host = $('#exercise-chart');
   const stats = $('#exercise-stats');
   host.innerHTML = '';
@@ -687,6 +962,65 @@ function renderSettings() {
       ? 'Τα δεδομένα γράφονται στη συσκευή και ανεβαίνουν μόνα τους στο cloud.'
       : 'Ο browser μπλοκάρει την τοπική αποθήκευση, οπότε τα δεδομένα κρατιούνται μόνο για αυτή τη συνεδρία. Σε κανονική σελίδα θα αποθηκεύονται μόνιμα.';
   renderSyncStatus();
+  renderPlan();
+}
+
+/* ---------- Οι αλλαγές σου στο πρόγραμμα ---------- */
+
+function renderPlan() {
+  const host = $('#plan-list');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const items = [];
+  DAY_ORDER.forEach((d) => {
+    dayExercises(d, true).forEach((ex) => {
+      const base = PROGRAM[d].exercises.find((e) => e.id === ex.id);
+      const letter = PROGRAM[d].letter;
+      if (ex.hidden) {
+        items.push({ ex, text: `${ex.name} · αφαιρέθηκε από την ημέρα ${letter}`, action: 'restore' });
+      } else if (ex.custom) {
+        items.push({ ex, text: `${ex.name} · δική σου προσθήκη στην ημέρα ${letter}`, action: 'delete' });
+      } else if (ex.changed) {
+        const label = base && base.name !== ex.name ? `${base.name} → ${ex.name}` : ex.name;
+        items.push({ ex, text: `${label} · ημέρα ${letter}`, action: 'reset' });
+      }
+    });
+  });
+
+  if (!items.length) {
+    host.innerHTML =
+      '<div class="empty">Το πρόγραμμα είναι όπως ήρθε. Άλλαξε ό,τι θέλεις με το κουμπί «Αλλαγή» πάνω σε κάθε άσκηση.</div>';
+    return;
+  }
+
+  const labels = { restore: 'Επανάφερε', delete: 'Διαγραφή', reset: 'Αρχική' };
+
+  items.forEach(({ ex, text, action }) => {
+    const row = document.createElement('div');
+    row.className = 'plan-item';
+    row.innerHTML = `<span>${esc(text)}</span>`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = labels[action];
+    btn.addEventListener('click', () => {
+      if (action === 'restore') showExercise(ex.id);
+      if (action === 'reset') {
+        delete state.plan.overrides[ex.id];
+        savePlan();
+      }
+      if (action === 'delete') {
+        if (!confirm(`Θα διαγραφεί οριστικά η «${ex.name}». Συνέχεια;`)) return;
+        state.plan.extras[ex.day] = (state.plan.extras[ex.day] || []).filter((e) => e.id !== ex.id);
+        delete state.plan.overrides[ex.id];
+        savePlan();
+      }
+      renderAll();
+      renderPlan();
+    });
+    row.appendChild(btn);
+    host.appendChild(row);
+  });
 }
 
 function syncWording() {
@@ -728,6 +1062,17 @@ function setStatus(el, message, ok) {
 
 $('#sync-now').addEventListener('click', () => store.syncNow());
 
+const planReset = $('#plan-reset');
+if (planReset) {
+  planReset.addEventListener('click', () => {
+    if (!confirm('Όλες οι ασκήσεις γυρνούν στο αρχικό πρόγραμμα. Οι καταγραφές σου δεν πειράζονται. Συνέχεια;')) return;
+    state.plan = blankPlan();
+    savePlan();
+    renderAll();
+    renderPlan();
+  });
+}
+
 window.addEventListener('lean:sync', renderSyncStatus);
 
 /* Όταν έρθουν νέα δεδομένα από άλλη συσκευή, ανανέωσε τις οθόνες —
@@ -737,9 +1082,11 @@ window.addEventListener('lean:data', () => {
   state.bodyweight = store.read('bodyweight', []);
   state.measurements = store.read('measurements', []);
   state.profile = store.read('profile', null);
-  if (state.editing) return;
+  state.plan = normalizePlan(store.read('plan', null));
+  if (state.editing || state.swapping) return;
   loadProfile();
   renderAll();
+  renderPlan();
 });
 
 $('#export-btn').addEventListener('click', () => {
@@ -763,7 +1110,9 @@ $('#import-file').addEventListener('change', async (e) => {
     state.bodyweight = store.read('bodyweight', []);
     state.measurements = store.read('measurements', []);
     state.profile = store.read('profile', null);
+    state.plan = normalizePlan(store.read('plan', null));
     renderAll();
+    renderPlan();
     setStatus($('#data-status'), 'Τα δεδομένα φορτώθηκαν.', true);
   } catch (err) {
     setStatus($('#data-status'), 'Το αρχείο δεν διαβάστηκε: ' + err.message, false);
@@ -778,7 +1127,9 @@ $('#reset-btn').addEventListener('click', async () => {
   state.bodyweight = [];
   state.measurements = [];
   state.profile = null;
+  state.plan = blankPlan();
   renderAll();
+  renderPlan();
   setStatus($('#data-status'), 'Όλα διαγράφηκαν.', true);
 });
 
