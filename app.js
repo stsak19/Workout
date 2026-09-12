@@ -723,7 +723,7 @@ $('#export-btn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(store.exportAll(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `lean-${today()}.json`;
+  a.download = `tsak-${today()}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus($('#data-status'), 'Το αρχείο κατέβηκε.', true);
